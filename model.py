@@ -8,6 +8,8 @@ def embedding(features, opt, prefix='', is_reuse=None):
     with tf.variable_scope(prefix + 'embed', reuse=is_reuse):
         if opt.fix_emb:
             assert (hasattr(opt, 'W_emb'))
+            print(np.shape(np.array(opt.W_emb)))
+            print(opt.n_words)
             assert (np.shape(np.array(opt.W_emb)) == (opt.n_words, opt.embed_size))
             W = tf.get_variable('W', initializer=opt.W_emb, trainable=True)
             print("initialize word embedding finished")

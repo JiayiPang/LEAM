@@ -4,3 +4,14 @@ data/ag_news_glove.p
 *.p
 data/ag_news.p
 data/ag_news_glove.p
+*.local
+*.pyc
+.DS_Store
+*.gz
+*.index
+*.data-00000-of-00001
+*.meta
+data/glove.42B.300d.word2vecformat.txt
+classemb.py
+__pycache__/model.cpython-35.pyc
+*.pyc

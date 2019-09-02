@@ -18,16 +18,16 @@ from utils import get_minibatches_idx, restore_from_save, tensors_key_in_file, p
 class Options(object):
     def __init__(self):
         self.GPUID = 0
-        self.dataset = 'agnews'
+        self.dataset = 'Tweet'
         self.fix_emb = True
         self.restore = False
         self.W_emb = None
         self.W_class_emb = None
-        self.maxlen = 305
+        self.maxlen = 15
         self.n_words = None
         self.embed_size = 300
         self.lr = 1e-3
-        self.batch_size = 100
+        self.batch_size = 8
         self.max_epochs = 20
         self.dropout = 0.5
         self.part_data = False
@@ -40,7 +40,7 @@ class Options(object):
         self.optimizer = 'Adam'
         self.clip_grad = None
         self.class_penalty = 1.0
-        self.ngram = 55
+        self.ngram = 3
         self.H_dis = 300
 
 
@@ -86,20 +86,21 @@ def main():
     # Prepare training and testing data
     opt = Options()
     # load data
-    if opt.dataset == 'yahoo':
-        loadpath = "./data/yahoo.p"
-        embpath = "./data/yahoo_glove.p"
-        opt.num_class = 10
-        opt.class_name = ['Society Culture',
-            'Science Mathematics',
-            'Health' ,
-            'Education Reference' ,
-            'Computers Internet' ,
-            'Sports' ,
-            'Business Finance' ,
-            'Entertainment Music' ,
-            'Family Relationships' ,
-            'Politics Government']
+    if opt.dataset == 'Tweet':
+        loadpath = "./data/langdetect_tweet.p"
+        embpath = "./data/langdetect_tweet_emb.p"
+        opt.num_class = 4
+        opt.class_name = ['apple','google','microsoft','twitter']
+    if opt.dataset == 'N20short':
+        loadpath = "./data/N20short.p"
+        embpath = "./data/N20short_emb.p"
+        opt.class_name = ['rec.autos', 'talk.politics.misc', 'sci.electronics', 'comp.sys.ibm.pc.hardware',
+                      'talk.politics.guns',
+                      'sci.med', 'rec.motorcycles', 'soc.religion.christian', 'comp.sys.mac.hardware', 'comp.graphics',
+                      'sci.space', 'alt.atheism', 'rec.sport.baseball', 'comp.windows.x', 'talk.religion.misc',
+                      'comp.os.ms-windows.misc', 'misc.forsale', 'talk.politics.mideast', 'sci.crypt',
+                      'rec.sport.hockey']
+        opt.num_class = len(opt.class_name)
     elif opt.dataset == 'agnews':
         loadpath = "./data/ag_news.p"
         embpath = "./data/ag_news_glove.p"
@@ -165,7 +166,7 @@ def main():
         print('No embedding file found.')
         opt.fix_emb = False
 
-    with tf.device('/gpu:1'):
+    with tf.device('/cpu:0'):
         x_ = tf.placeholder(tf.int32, shape=[opt.batch_size, opt.maxlen],name='x_')
         x_mask_ = tf.placeholder(tf.float32, shape=[opt.batch_size, opt.maxlen],name='x_mask_')
         keep_prob = tf.placeholder(tf.float32,name='keep_prob')
@@ -215,7 +216,6 @@ def main():
                     x_labels = [train_lab[t] for t in train_index]
                     x_labels = np.array(x_labels)
                     x_labels = x_labels.reshape((len(x_labels), opt.num_class))
-
                     x_batch, x_batch_mask = prepare_data_for_emb(sents, opt)
                     _, loss, step,  = sess.run([train_op, loss_, global_step], feed_dict={x_: x_batch, x_mask_: x_batch_mask, y_: x_labels, keep_prob: opt.dropout, class_penalty_:opt.class_penalty})
 
@@ -246,10 +246,10 @@ def main():
                             val_labels = np.array(val_labels)
                             val_labels = val_labels.reshape((len(val_labels), opt.num_class))
                             x_val_batch, x_val_batch_mask = prepare_data_for_emb(val_sents, opt)
+
                             val_accuracy = sess.run(accuracy_, feed_dict={x_: x_val_batch, x_mask_: x_val_batch_mask,
                                 y_: val_labels, keep_prob: 1.0,
-                                class_penalty_:0.0                                         })
-
+                                class_penalty_:0.0})
                             val_correct += val_accuracy * len(val_index)
 
                         val_accuracy = val_correct / len(val)
@@ -277,6 +277,7 @@ def main():
 
                 print("Epoch %d: Max Test accuracy %f" % (epoch, max_test_accuracy))
                 saver.save(sess, opt.save_path, global_step=epoch)
+                saver.save(sess, "Model/model.ckpt")
             print("Max Test accuracy %f " % max_test_accuracy)
 
         except KeyboardInterrupt:
