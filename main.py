@@ -9,10 +9,10 @@ import os, sys, pickle as cPickle
 import tensorflow as tf
 from tensorflow.contrib import layers
 import numpy as np
+from model import *
 import scipy.io as sio
 from math import floor
 
-from model import *
 from utils import get_minibatches_idx, restore_from_save, tensors_key_in_file, prepare_data_for_emb, load_class_embedding
 
 class Options(object):
@@ -27,8 +27,8 @@ class Options(object):
         self.n_words = None
         self.embed_size = 300
         self.lr = 1e-3
-        self.batch_size = 8
-        self.max_epochs = 20
+        self.batch_size = 2
+        self.max_epochs = 1
         self.dropout = 0.5
         self.part_data = False
         self.portion = 1.0 
@@ -43,11 +43,13 @@ class Options(object):
         self.ngram = 3
         self.H_dis = 300
 
+        self.topnlabel = 2
 
     def __iter__(self):
         for attr, value in self.__dict__.items():
             yield attr, value
 
+topnlabel_docwithoutlabel = []
 def emb_classifier(x, x_mask, y, dropout, opt, class_penalty):
     # comment notation
     #  b: batch size, s: sequence length, e: embedding dim, c : num of class
@@ -79,7 +81,7 @@ def emb_classifier(x, x_mask, y, dropout, opt, class_penalty):
         optimizer=opt.optimizer,
         learning_rate=opt.lr)
 
-    return accuracy, loss, train_op, W_norm, global_step
+    return accuracy, loss, train_op, W_norm, global_step, prob
 
 
 def main():
@@ -87,7 +89,7 @@ def main():
     opt = Options()
     # load data
     if opt.dataset == 'Tweet':
-        loadpath = "./data/langdetect_tweet.p"
+        loadpath = "./data/langdetect_tweet0.7.p"
         embpath = "./data/langdetect_tweet_emb.p"
         opt.num_class = 4
         opt.class_name = ['apple','google','microsoft','twitter']
@@ -139,9 +141,11 @@ def main():
                         'best']
     x = cPickle.load(open(loadpath, "rb"),encoding='iso-8859-1')
     train, val, test = x[0], x[1], x[2]
+    print(len(val))
     train_lab, val_lab, test_lab = x[3], x[4], x[5]
     wordtoix, ixtoword = x[6], x[7]
     del x
+    print("len of train,val,test:",len(train),len(val),len(test))
     print("load data finished")
 
     train_lab = np.array(train_lab, dtype='float32')
@@ -153,7 +157,7 @@ def main():
         train_ind = np.random.choice(len(train), int(len(train)*opt.portion), replace=False)
         train = [train[t] for t in train_ind]
         train_lab = [train_lab[t] for t in train_ind]
-    
+
     os.environ['CUDA_VISIBLE_DEVICES'] = str(opt.GPUID)
 
     print(dict(opt))
@@ -172,7 +176,7 @@ def main():
         keep_prob = tf.placeholder(tf.float32,name='keep_prob')
         y_ = tf.placeholder(tf.float32, shape=[opt.batch_size, opt.num_class],name='y_')
         class_penalty_ = tf.placeholder(tf.float32, shape=())
-        accuracy_, loss_, train_op, W_norm_, global_step = emb_classifier(x_, x_mask_, y_, keep_prob, opt, class_penalty_)
+        accuracy_, loss_, train_op, W_norm_, global_step, prob_ = emb_classifier(x_, x_mask_, y_, keep_prob, opt, class_penalty_)
     uidx = 0
     max_val_accuracy = 0.
     max_test_accuracy = 0.
@@ -214,8 +218,11 @@ def main():
                     uidx += 1
                     sents = [train[t] for t in train_index]
                     x_labels = [train_lab[t] for t in train_index]
+                    # print(x_labels)
                     x_labels = np.array(x_labels)
                     x_labels = x_labels.reshape((len(x_labels), opt.num_class))
+                    # print(x_labels)
+                    # exit()
                     x_batch, x_batch_mask = prepare_data_for_emb(sents, opt)
                     _, loss, step,  = sess.run([train_op, loss_, global_step], feed_dict={x_: x_batch, x_mask_: x_batch_mask, y_: x_labels, keep_prob: opt.dropout, class_penalty_:opt.class_penalty})
 
@@ -258,27 +265,69 @@ def main():
                         if val_accuracy > max_val_accuracy:
                             max_val_accuracy = val_accuracy
 
-                            test_correct = 0.0
-                            
-                            kf_test = get_minibatches_idx(len(test), opt.batch_size, shuffle=True)
-                            for _, test_index in kf_test:
-                                test_sents = [test[t] for t in test_index]
-                                test_labels = [test_lab[t] for t in test_index]
-                                test_labels = np.array(test_labels)
-                                test_labels = test_labels.reshape((len(test_labels), opt.num_class))
-                                x_test_batch, x_test_batch_mask = prepare_data_for_emb(test_sents, opt)
+                            # test_correct = 0.0
+                            #
+                            # kf_test = get_minibatches_idx(len(test), opt.batch_size, shuffle=True)
+                            # for _, test_index in kf_test:
+                            #     test_sents = [test[t] for t in test_index]
+                            #     test_labels = [test_lab[t] for t in test_index]
+                            #     test_labels = np.array(test_labels)
+                            #     test_labels = test_labels.reshape((len(test_labels), opt.num_class))
+                            #     x_test_batch, x_test_batch_mask = prepare_data_for_emb(test_sents, opt)
+                            #
+                            #     test_accuracy,predict_prob = sess.run([accuracy_,prob_],feed_dict={x_: x_test_batch, x_mask_: x_test_batch_mask,y_: test_labels, keep_prob: 1.0, class_penalty_: 0.0})
+                            #     print(predict_prob)
+                            #     test_correct += test_accuracy * len(test_index)
+                            #
+                            # test_accuracy = test_correct / len(test)
+                            # print("Test accuracy %f " % test_accuracy)
+                            # max_test_accuracy = test_accuracy
 
-                                test_accuracy = sess.run(accuracy_,feed_dict={x_: x_test_batch, x_mask_: x_test_batch_mask,y_: test_labels, keep_prob: 1.0, class_penalty_: 0.0})
-
-                                test_correct += test_accuracy * len(test_index)                                
-                            test_accuracy = test_correct / len(test)
-                            print("Test accuracy %f " % test_accuracy)
-                            max_test_accuracy = test_accuracy
-
-                print("Epoch %d: Max Test accuracy %f" % (epoch, max_test_accuracy))
+                # print("Epoch %d: Max Test accuracy %f" % (epoch, max_test_accuracy))
                 saver.save(sess, opt.save_path, global_step=epoch)
-                saver.save(sess, "Model/model.ckpt")
-            print("Max Test accuracy %f " % max_test_accuracy)
+                saver.save(sess, "save_model/model.ckpt")
+            # print("Max Test accuracy %f " % max_test_accuracy)
+
+            test_correct = 0.0
+
+            kf_test = get_minibatches_idx(len(test), opt.batch_size, shuffle=False)
+            for _, test_index in kf_test:
+                test_sents = [test[t] for t in test_index]
+                test_labels = [test_lab[t] for t in test_index]
+                test_labels = np.array(test_labels)
+                test_labels = test_labels.reshape((len(test_labels), opt.num_class))
+                x_test_batch, x_test_batch_mask = prepare_data_for_emb(test_sents, opt)
+
+                test_accuracy, predict_prob = sess.run([accuracy_, prob_],
+                                                       feed_dict={x_: x_test_batch, x_mask_: x_test_batch_mask,
+                                                                  y_: test_labels, keep_prob: 1.0, class_penalty_: 0.0})
+
+                for prob in predict_prob:
+                    topnlabel_onedoc = [0] * opt.num_class
+                    for iter_topnlabel in range(opt.topnlabel):
+                        index_label = np.argwhere(prob == max(prob))
+                        topnlabel_onedoc[index_label[0][0]] = prob[index_label][0][0]
+                        prob[index_label] = -1
+                    topnlabel_docwithoutlabel.append(topnlabel_onedoc)
+                test_correct += test_accuracy * len(test_index)
+            print(topnlabel_docwithoutlabel)
+            test_accuracy = test_correct / len(test)
+            print("Predict accuracy %f " % test_accuracy)
+
+            max_test_accuracy = test_accuracy
+
+            filename = 'test'
+            file = open(filename, 'w')
+            file.write(str(len(test)))
+            file.write('\n')
+            # print(wordtoix.get('close'))
+            # exit()
+            for topic_prob in topnlabel_docwithoutlabel:
+                print(topic_prob)
+                for prob_each_label in topic_prob:
+                    file.write(str(prob_each_label))
+                    file.write(" ")
+                file.write('\n')
 
         except KeyboardInterrupt:
             print('Training interupted')

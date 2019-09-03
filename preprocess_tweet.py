@@ -1,3 +1,4 @@
+# 删除test集，test作为无标签集
 from gensim.models.word2vec import Word2Vec
 import _pickle as cPickle
 import pandas as pd
@@ -8,7 +9,7 @@ if(dataset=='Tweet'):
     filename = './data/langdetect_tweet.txt'
     labelfilename= './data/langdetect_tweet_label.txt'
     encoding = 'utf-8'
-    outputfilename = './data/langdetect_tweet.p'
+    outputfilename = './data/langdetect_tweet'
     loadpath = "./data/langdetect_tweet.p"
     class_name = ['apple','google','microsoft','twitter']
 
@@ -122,16 +123,23 @@ def process_label(labelfile):
 	tmp_list.sort(key=label_list.index)
 	label_dic = dict(zip(tmp_list, list(range(0, len(tmp_list)))))
 	# types_of_label = len(label_dic)
-
+	# print(label_dic)
+	# exit()
 	label_key_list = []
 	for item in label_list:
 		label_key_list.append(label_dic[item])
+
 	return label_key_list,label_dic
 
-def make_train_data(docs_ix_list,label_list,label_dic):
+def make_train_data(docs_ix_list,label_list,label_dic,prop_withlabel,train_prop,val_prop):
+	# for i in label_list:
+	# 	print(i)
+	# exit()
 	# 划分数据集
 	number_list = []
-	for key in label_dic.keys():
+	for i in range(len(label_dic)):
+		key = list(label_dic.keys())[list(label_dic.values()).index(i)]
+		# print(label_list[1979])
 		number_list.append(label_list.count(label_dic[key]))
 
 	train = []
@@ -142,40 +150,55 @@ def make_train_data(docs_ix_list,label_list,label_dic):
 	test_lab = []
 
 	idx = 0
-	# proportion = [0.88, 0.07]
+
+	# print(number_list)
+
 	for num in number_list:
 		current_docs_list = docs_ix_list[idx:idx+num]
 		current_label_list = label_list[idx:idx+num]
+		# print(idx,idx+num)
 
 		# 把label转为LEAM用的one-hot格式 e.g. [0 0 1 0]
 		for i in range(len(current_label_list)):
 			one_digit_label = current_label_list[i]
+			# print(one_digit_label)
 			tmp = [0] * len(label_dic)
 			tmp[one_digit_label] = 1
 			current_label_list[i] = np.array(tmp)
+			# current_label_list_tmp[i] = np.array(tmp)
 		# 取train
-		tmp_train = random.sample(current_docs_list, round(num*0.88))
+		tmp_train = random.sample(current_docs_list, round(num*train_prop))
 		train +=  tmp_train
 
 		for item in tmp_train:
-			idx = current_docs_list.index(item)
-			lab = current_label_list.pop(idx)
+			idx_lab = current_docs_list.index(item)
+			lab = current_label_list[idx_lab]
 			train_lab.append(lab)
-			current_docs_list.remove(item)
+			# current_docs_list.remove(item)
+			# current_label_list_tmp.pop(idx_lab)
+		for item in tmp_train:
+			idx_lab = current_docs_list.index(item)
+			current_docs_list.pop(idx_lab)
+			current_label_list.pop(idx_lab)
 
-		tmp_val = random.sample(current_docs_list, round(num*0.07))
+		tmp_val = random.sample(current_docs_list, round(num*val_prop))
 		val += tmp_val
 
 		for item in tmp_val:
-			idx = current_docs_list.index(item)
-			lab = current_label_list.pop(idx)
+			idx_lab = current_docs_list.index(item)
+			lab = current_label_list[idx_lab]
 			val_lab.append(lab)
-			current_docs_list.remove(item)
+
+		for item in tmp_val:
+			idx_lab = current_docs_list.index(item)
+			current_docs_list.pop(idx_lab)
+			current_label_list.pop(idx_lab)
+		# print(len(val),len(val_lab))
 
 		test += current_docs_list
 		test_lab += current_label_list
-		print(len(train),len(val),len(test))
 
+		# print(len(val),len(val_lab))
 		idx+=num
 
 	return train,val,test,train_lab,val_lab,test_lab
@@ -183,9 +206,28 @@ def make_train_data(docs_ix_list,label_list,label_dic):
 if __name__ == '__main__':
 	docs_ix_list, wordtoix, ixtoword = precess(filename, encoding, outputfilename)
 	label_list,label_dic = process_label(labelfilename)
-	print(label_dic.keys())
-	print(len(wordtoix))
-	print(len(ixtoword))
+	# print(label_dic.keys())
+	# print(len(wordtoix))
+	# print(len(ixtoword))
 
-	train, val, test, train_lab, val_lab, test_lab = make_train_data(docs_ix_list, label_list, label_dic)
-	cPickle.dump([train, val, test, train_lab, val_lab, test_lab, wordtoix, ixtoword], open(outputfilename, "wb"))
+	proportion_withlabel_list = [0.7,0.6,0.5,0.4,0.3]
+	train_proportion = [0.] * len(proportion_withlabel_list)
+	val_proportion = [0.] * len(proportion_withlabel_list)
+
+	for i in range(len(proportion_withlabel_list)):
+		train_proportion[i] = (1. - proportion_withlabel_list[i]) * 0.9
+		val_proportion[i] = (1. - proportion_withlabel_list[i]) * 0.1
+
+	for i in range(len(proportion_withlabel_list)):
+		prop_withlabel = proportion_withlabel_list[i]
+		train_prop = train_proportion[i]
+		val_prop = val_proportion[i]
+		train, val, test, train_lab, val_lab, test_lab = make_train_data(docs_ix_list, label_list, label_dic,prop_withlabel,train_prop,val_prop)
+		print("len of train,val,test:", len(train), len(train_lab), len(val), len(val_lab), len(test), len(test_lab))
+		if (len(test) % 2 == 1):  # 保证没有label的数据集的数量是偶数，因为LEAM的最小batch_size是2
+			val.append(test[0])
+			val_lab.append(test_lab[0])
+			test = test[1:]
+			test_lab = test_lab[1:]
+		print("len of train,val,test:", len(train), len(train_lab), len(val), len(val_lab), len(test), len(test_lab))
+		cPickle.dump([train, val, test, train_lab, val_lab, test_lab, wordtoix, ixtoword], open(outputfilename+str(prop_withlabel)+'.p', "wb"))
